@@ -92,7 +92,7 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    update = types.Update.model_validate(await request.get_json(), context={"bot": bot})
+   update = types.Update.model_validate(request.get_json(), context={"bot": bot})
     await dp.feed_update(bot, update)
     return "ok", 200
 
