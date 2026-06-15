@@ -92,8 +92,13 @@ def home():
 
 @app.route('/webhook', methods=['POST'])
 async def webhook():
-    update = types.Update.model_validate(request.get_json(), context={"bot": bot})
+    print("1. Webhook called", flush=True)
+    json_data = request.get_json()
+    print("2. JSON received:", json_data, flush=True)
+    update = types.Update.model_validate(json_data, context={"bot": bot})
+    print("3. Update validated", flush=True)
     await dp.feed_update(bot, update)
+    print("4. Update fed to dispatcher", flush=True)
     return "ok", 200
 
 # Инициализация вебхука при старте
