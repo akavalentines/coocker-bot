@@ -70,21 +70,43 @@ async def on_user_join(update: types.ChatMemberUpdated):
         )
 
 @dp.message()
-print("anti_spam_handler called", flush=True)
 async def anti_spam_handler(message: types.Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    # Простейший спам-фильтр без Redis
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+
+    stored_captcha = await redis_client.get(f"captcha:{user_id}")
+    if stored_captcha:
+        if message.text and message.text.strip() == stored_captcha:
+            await redis_client.delete(f"captcha:{user_id}")
+            await redis_client.delete(f"mute:{chat_id}:{user_id}")
+            await message.reply("✅ Капча пройдена! Можно писать.")
+            return
+        else:
+            await message.delete()
+            await message.reply("❌ Неверная капча. Нажмите кнопку для новой.")
+            return
+
+    if await redis_client.exists(f"mute:{chat_id}:{user_id}"):
+        await message.delete()
+        return
+
     if has_forbidden_link(message.text) or has_spam_words(message.text):
         await message.delete()
-        await message.reply("⚠️ Спам запрещён!")
+        spam_count = await redis_client.incr(f"spam:{user_id}")
+        await redis_client.expire(f"spam:{user_id}", 86400)
+        if spam_count >= MAX_SPAM_ATTEMPTS:
+            await bot.ban_chat_member(chat_id, user_id)
+            await message.answer(f"🚫 {message.from_user.full_name} забанен за спам.")
+        else:
+            await redis_client.setex(f"mute:{chat_id}:{user_id}", 600, "1")
+            await message.answer(f"⚠️ Спам запрещён. Мут 10 минут (нарушение {spam_count}/{MAX_SPAM_ATTEMPTS})")
         return
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    # print("start_cmd called", flush=True)
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
-    # print("start_cmd finished", flush=True)
 # --- Flask для вебхука ---
 app = Flask('')
 
