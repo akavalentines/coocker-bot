@@ -3,46 +3,26 @@ import re
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.client.session.aiohttp import AiohttpSession
-from flask import Flask
-from threading import Thread
+from aiogram.types import Update
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import redis.asyncio as redis
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("Токен не найден в .env")
-
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
+# --- Конфигурация бота ---
 ALLOWED_DOMAINS = ["t.me", "telegram.me", "youtube.com", "github.com"]
 NEW_USER_MUTE_SECONDS = 300
 CAPTCHA_TIMEOUT = 120
 MAX_SPAM_ATTEMPTS = 3
-
 URL_PATTERN = re.compile(r"(https?://[^\s]+)")
 SPAM_PATTERN = re.compile(r"(реклама|казино|заработок|крипта|скидки)", re.IGNORECASE)
 
-# Flask app for health checks
-# Flask app for health checks
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot is alive!"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-def keep_alive():
-    t = Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-
-# Bot setup
-session = AiohttpSession()
-bot = Bot(token=BOT_TOKEN, session=session)
+# --- Инициализация ---
+bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
 redis_client = None
 dp = Dispatcher()
 
@@ -63,6 +43,7 @@ def generate_captcha() -> str:
     import random, string
     return ''.join(random.choices(string.digits, k=4))
 
+# --- Хендлеры (остаются без изменений) ---
 @dp.chat_member()
 async def on_user_join(update: types.ChatMemberUpdated):
     if update.new_chat_member.status == "member":
@@ -73,7 +54,6 @@ async def on_user_join(update: types.ChatMemberUpdated):
         await bot.send_message(
             update.chat.id,
             f"Привет, {user.full_name}! Введи код **{captcha}** (просто напиши его в чат). У тебя 2 минуты.",
-            parse_mode="Markdown"
         )
 
 @dp.callback_query(lambda c: c.data == "new_captcha")
@@ -82,7 +62,7 @@ async def resend_captcha(callback: types.CallbackQuery):
     if await redis_client.exists(f"captcha:{user_id}"):
         new_captcha = generate_captcha()
         await redis_client.setex(f"captcha:{user_id}", CAPTCHA_TIMEOUT, new_captcha)
-        await callback.message.reply(f"Новый код: `{new_captcha}`", parse_mode="Markdown")
+        await callback.message.reply(f"Новый код: `{new_captcha}`")
     await callback.answer()
 
 @dp.message()
@@ -124,11 +104,36 @@ async def anti_spam_handler(message: types.Message):
 async def start_cmd(message: types.Message):
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
 
-async def main():
-    global redis_client
-    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
-    keep_alive()
-    await dp.start_polling(bot)
+# --- Настройка Flask для Webhook ---
+app = Flask('')
 
-if __name__ == "__main__":
-    asyncio.run(main())
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+@app.route(f'/webhook', methods=['POST'])
+async def webhook():
+    """Эндпоинт, куда Telegram будет присылать обновления."""
+    update = Update.model_validate(await request.get_json(), context={"bot": bot})
+    await dp.feed_update(bot, update)
+    return "ok", 200
+
+async def on_startup():
+    """Функция, выполняемая при старте приложения."""
+    global redis_client
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    # Удаляем старый вебхук на случай, если он был
+    await bot.delete_webhook(drop_pending_updates=True)
+    # Устанавливаем новый вебхук
+    webhook_url = f"https://coocker-bot.onrender.com/webhook"
+    await bot.set_webhook(url=webhook_url, allowed_updates=dp.resolve_used_update_types())
+    print(f"Webhook set to {webhook_url}")
+
+@app.route('/set_webhook', methods=['GET'])
+def set_webhook():
+    """Простой GET-эндпоинт для установки вебхука вручную."""
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(on_startup())
+    return "Webhook set!", 200
