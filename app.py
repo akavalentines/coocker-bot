@@ -12,7 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-# Временная заглушка Redis (чтобы не падало)
+# Временная заглушка Redis (замените на реальный позже)
 class FakeRedis:
     async def get(self, *args, **kwargs): return None
     async def setex(self, *args, **kwargs): return True
@@ -22,8 +22,6 @@ class FakeRedis:
     async def expire(self, *args, **kwargs): return True
 
 redis_client = FakeRedis()
-# Если настроите настоящий Redis, замените на:
-# redis_client = redis.from_url(os.getenv("REDIS_URL"), decode_responses=True)
 
 ALLOWED_DOMAINS = ["t.me", "telegram.me", "youtube.com", "github.com"]
 URL_PATTERN = re.compile(r"(https?://[^\s]+)")
@@ -72,6 +70,7 @@ async def anti_spam_handler(message: types.Message):
         await message.answer("🚫 Спам запрещён!")
 
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     print("Бот запущен и работает через long polling", flush=True)
     await dp.start_polling(bot)
 
