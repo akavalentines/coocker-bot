@@ -15,7 +15,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-# === ВРЕМЕННАЯ ЗАГЛУШКА REDIS ===
+# Временная заглушка Redis
 class FakeRedis:
     async def get(self, *args, **kwargs): return None
     async def setex(self, *args, **kwargs): return True
@@ -50,7 +50,7 @@ def generate_captcha() -> str:
     import random, string
     return ''.join(random.choices(string.digits, k=4))
 
-@dp.chat_member()
+# --- Хендлеры ---
 async def on_user_join(update: types.ChatMemberUpdated):
     if update.new_chat_member.status == "member":
         user = update.new_chat_member.user
@@ -60,31 +60,35 @@ async def on_user_join(update: types.ChatMemberUpdated):
             f"Привет, {user.full_name}! Введи код **{captcha}** (просто напиши его в чат). У тебя 2 минуты."
         )
 
-@dp.callback_query(lambda c: c.data == "new_captcha")
 async def resend_captcha(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     new_captcha = generate_captcha()
     await callback.message.reply(f"Новый код: `{new_captcha}`")
     await callback.answer()
 
-@dp.message()
 async def anti_spam_handler(message: types.Message):
     if message.chat.type not in ("group", "supergroup"):
         return
-    # Пока просто логируем, удаление выключено
     print(f"[DEBUG] Group message: {message.text}", file=sys.stderr, flush=True)
     # if has_forbidden_link(message.text) or has_spam_words(message.text):
     #     await message.delete()
     #     await message.answer("🚫 Спам запрещён!")
 
-@dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     print("[DEBUG] start_cmd called", file=sys.stderr, flush=True)
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
     print("[DEBUG] start_cmd finished", file=sys.stderr, flush=True)
 
-print("Dispatcher initialized, registered handlers:", dp.message.handlers, file=sys.stderr)
-# Flask app
+# --- Явная регистрация хендлеров ---
+dp.chat_member(on_user_join)
+dp.callback_query(resend_captcha, lambda c: c.data == "new_captcha")
+dp.message(anti_spam_handler)
+dp.message(start_cmd, Command("start"))  # важный момент: Command("start") фильтр
+
+# Диагностика зарегистрированных хендлеров
+print("Registered message handlers:", dp.message.handlers, file=sys.stderr, flush=True)
+
+# --- Flask ---
 app = Flask('')
 
 @app.route('/')
@@ -96,9 +100,9 @@ async def webhook():
     try:
         print("1. Webhook called", file=sys.stderr, flush=True)
         json_data = request.get_json()
-        print("2. JSON received:", json_data, file=sys.stderr, flush=True)
+        print("2. JSON received", file=sys.stderr, flush=True)
         update = types.Update.model_validate(json_data, context={"bot": bot})
-        print("3. Update validated:", update, file=sys.stderr, flush=True)
+        print("3. Update validated", file=sys.stderr, flush=True)
         await dp.feed_update(bot, update)
         print("4. Update fed to dispatcher", file=sys.stderr, flush=True)
         return "ok", 200
@@ -112,7 +116,6 @@ async def init():
     await bot.set_webhook(url=webhook_url, allowed_updates=dp.resolve_used_update_types())
     print(f"Webhook set to {webhook_url}", flush=True)
 
-# Инициализация при старте
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 loop.run_until_complete(init())
