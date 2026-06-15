@@ -4,22 +4,10 @@ import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
+from flask import Flask
+from threading import Thread
 from dotenv import load_dotenv
 import redis.asyncio as redis
-import aiohttp
-from aiogram.client.session.aiohttp import AiohttpSession
-
-PROXY_URL = "http://7gpTdw:c0KZY0@131.108.17.69:9927"
-
-async def main():
-    # Создаём коннектор и передаём его в сессию
-    connector = aiohttp.TCPConnector()
-    session = AiohttpSession(
-        connector=connector,
-        proxy=PROXY_URL  # Параметр proxy передаётся именно так
-    )
-    bot = Bot(token=BOT_TOKEN, session=session)
-    # ... остальной код бота
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -36,11 +24,23 @@ MAX_SPAM_ATTEMPTS = 3
 URL_PATTERN = re.compile(r"(https?://[^\s]+)")
 SPAM_PATTERN = re.compile(r"(реклама|казино|заработок|крипта|скидки)", re.IGNORECASE)
 
-# Прокси (закомментировано, раскомментируйте при необходимости)
-# PROXY_URL = "socks5://логин:пароль@адрес:порт"
-# session = AiohttpSession(proxy=PROXY_URL)
-session = AiohttpSession()  # без прокси
+# Flask app for health checks
+flask_app = Flask('')
 
+@flask_app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+
+# Bot setup
+session = AiohttpSession()
 bot = Bot(token=BOT_TOKEN, session=session)
 redis_client = None
 dp = Dispatcher()
@@ -125,7 +125,8 @@ async def start_cmd(message: types.Message):
 
 async def main():
     global redis_client
-    redis_client = redis.from_url("redis://localhost:6379", decode_responses=True)
+    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
+    keep_alive()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
