@@ -3,26 +3,31 @@ import re
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from aiogram.types import Update
-from flask import Flask, request, jsonify
+from flask import Flask, request
+from threading import Thread
 from dotenv import load_dotenv
 import redis.asyncio as redis
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+if not BOT_TOKEN:
+    raise ValueError("Токен не найден в .env")
 
-# --- Конфигурация бота ---
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+
 ALLOWED_DOMAINS = ["t.me", "telegram.me", "youtube.com", "github.com"]
 NEW_USER_MUTE_SECONDS = 300
 CAPTCHA_TIMEOUT = 120
 MAX_SPAM_ATTEMPTS = 3
+
 URL_PATTERN = re.compile(r"(https?://[^\s]+)")
 SPAM_PATTERN = re.compile(r"(реклама|казино|заработок|крипта|скидки)", re.IGNORECASE)
 
-# --- Инициализация ---
-bot = Bot(token=BOT_TOKEN, parse_mode="Markdown")
+# --- Инициализация бота и диспетчера ---
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2))
 redis_client = None
 dp = Dispatcher()
 
@@ -43,7 +48,7 @@ def generate_captcha() -> str:
     import random, string
     return ''.join(random.choices(string.digits, k=4))
 
-# --- Хендлеры (остаются без изменений) ---
+# --- Хендлеры ---
 @dp.chat_member()
 async def on_user_join(update: types.ChatMemberUpdated):
     if update.new_chat_member.status == "member":
@@ -53,7 +58,7 @@ async def on_user_join(update: types.ChatMemberUpdated):
         await redis_client.setex(f"mute:{update.chat.id}:{user.id}", NEW_USER_MUTE_SECONDS, "1")
         await bot.send_message(
             update.chat.id,
-            f"Привет, {user.full_name}! Введи код **{captcha}** (просто напиши его в чат). У тебя 2 минуты.",
+            f"Привет, {user.full_name}! Введи код **{captcha}** (просто напиши его в чат). У тебя 2 минуты."
         )
 
 @dp.callback_query(lambda c: c.data == "new_captcha")
@@ -104,36 +109,41 @@ async def anti_spam_handler(message: types.Message):
 async def start_cmd(message: types.Message):
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
 
-# --- Настройка Flask для Webhook ---
+# --- Flask для health check и вебхуков ---
 app = Flask('')
 
 @app.route('/')
 def home():
     return "Bot is alive!"
 
-@app.route(f'/webhook', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 async def webhook():
-    """Эндпоинт, куда Telegram будет присылать обновления."""
     update = Update.model_validate(await request.get_json(), context={"bot": bot})
     await dp.feed_update(bot, update)
     return "ok", 200
 
 async def on_startup():
-    """Функция, выполняемая при старте приложения."""
     global redis_client
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    # Удаляем старый вебхук на случай, если он был
+    redis_client = redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379"), decode_responses=True)
     await bot.delete_webhook(drop_pending_updates=True)
-    # Устанавливаем новый вебхук
-    webhook_url = f"https://coocker-bot.onrender.com/webhook"
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME', 'coocker-bot.onrender.com')}/webhook"
     await bot.set_webhook(url=webhook_url, allowed_updates=dp.resolve_used_update_types())
     print(f"Webhook set to {webhook_url}")
 
-@app.route('/set_webhook', methods=['GET'])
-def set_webhook():
-    """Простой GET-эндпоинт для установки вебхука вручную."""
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(on_startup())
-    return "Webhook set!", 200
+# --- Запуск веб-сервера ---
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.daemon = True
+    t.start()
+
+if __name__ == "__main__":
+    keep_alive()
+    asyncio.run(on_startup())
+    # Чтобы Flask приложение не завершалось, добавляем бесконечное ожидание
+    try:
+        asyncio.get_event_loop().run_forever()
+    except KeyboardInterrupt:
+        pass
