@@ -83,6 +83,7 @@ async def start_cmd(message: types.Message):
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
     print("[DEBUG] start_cmd finished", file=sys.stderr, flush=True)
 
+print("Dispatcher initialized, registered handlers:", dp.message.handlers, file=sys.stderr)
 # Flask app
 app = Flask('')
 
@@ -95,9 +96,9 @@ async def webhook():
     try:
         print("1. Webhook called", file=sys.stderr, flush=True)
         json_data = request.get_json()
-        print("2. JSON received", file=sys.stderr, flush=True)
+        print("2. JSON received:", json_data, file=sys.stderr, flush=True)
         update = types.Update.model_validate(json_data, context={"bot": bot})
-        print("3. Update validated", file=sys.stderr, flush=True)
+        print("3. Update validated:", update, file=sys.stderr, flush=True)
         await dp.feed_update(bot, update)
         print("4. Update fed to dispatcher", file=sys.stderr, flush=True)
         return "ok", 200
