@@ -70,6 +70,7 @@ async def on_user_join(update: types.ChatMemberUpdated):
         )
 
 @dp.message()
+print("anti_spam_handler called", flush=True)
 async def anti_spam_handler(message: types.Message):
     if message.chat.type not in ("group", "supergroup"):
         return
@@ -81,8 +82,9 @@ async def anti_spam_handler(message: types.Message):
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    await message.answer("Антиспам-бот работает (упрощённая версия без базы данных). Добавьте меня в группу с правами администратора.")
-
+    print("start_cmd called", flush=True)
+    await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
+    print("start_cmd finished", flush=True)
 # --- Flask для вебхука ---
 app = Flask('')
 
