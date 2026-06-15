@@ -21,10 +21,10 @@ def home():
     return "Bot alive"
 
 @app.route('/webhook', methods=['POST'])
-def webhook():  # синхронная функция (без async)
-    json_data = request.get_json()
+async def webhook():
+    json_data = request.get_json()  # ← НЕТ await
     update = types.Update.model_validate(json_data, context={"bot": bot})
-    # Для асинхронного вызова используем asyncio.create_task
+    # Запускаем обработку в фоне, не дожидаясь результата
     asyncio.create_task(dp.feed_update(bot, update))
     return "ok", 200
 
