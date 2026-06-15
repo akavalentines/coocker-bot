@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from dotenv import load_dotenv
 import redis.asyncio as redis
 
@@ -30,6 +30,7 @@ SPAM_PATTERN = re.compile(r"(реклама|казино|заработок|кр
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN_V2))
 dp = Dispatcher()
 redis_client = None
+webhook_set = False
 
 # --- Функции ---
 def has_forbidden_link(text: str) -> bool:
@@ -123,17 +124,30 @@ async def webhook():
     await dp.feed_update(bot, update)
     return "ok", 200
 
-# --- Запуск вебхука при старте приложения ---
-async def on_startup():
-    global redis_client
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    await bot.delete_webhook(drop_pending_updates=True)
-    webhook_url = f"https://coocker-bot.onrender.com/webhook"
-    await bot.set_webhook(url=webhook_url, allowed_updates=dp.resolve_used_update_types())
-    print(f"Webhook set to {webhook_url}")
+# --- Инициализация при старте (без before_first_request) ---
+async def init():
+    global redis_client, webhook_set
+    if not webhook_set:
+        redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+        await bot.delete_webhook(drop_pending_updates=True)
+        webhook_url = f"https://coocker-bot.onrender.com/webhook"
+        await bot.set_webhook(url=webhook_url, allowed_updates=dp.resolve_used_update_types())
+        webhook_set = True
+        print(f"Webhook set to {webhook_url}")
 
-@app.before_first_request
-def startup():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(on_startup())
+# Вызываем init при первом запросе через обработчик before_request
+@app.before_request
+async def before_request():
+    await init()
+
+# Для Gunicorn также нужно создать цикл событий в основном потоке
+# Gunicorn запускает приложение в синхронном режиме, поэтому мы используем asyncio.run()
+# Но before_request уже async, и Flask может не поддерживать асинхронные функции без специального адаптера.
+# Чтобы избежать проблем, лучше инициализировать всё на старте приложения в глобальном контексте.
+# Поэтому мы выполним init синхронно через asyncio.run() при импорте модуля.
+# Это сработает, так как Gunicorn импортирует модуль один раз.
+
+# Инициализация при загрузке модуля (один раз при старте)
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+loop.run_until_complete(init())
