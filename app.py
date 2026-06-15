@@ -82,9 +82,9 @@ async def anti_spam_handler(message: types.Message):
 
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
-    print("start_cmd called", flush=True)
+    # print("start_cmd called", flush=True)
     await message.answer("Антиспам-бот работает. Добавьте меня в группу с правами администратора.")
-    print("start_cmd finished", flush=True)
+    # print("start_cmd finished", flush=True)
 # --- Flask для вебхука ---
 app = Flask('')
 
