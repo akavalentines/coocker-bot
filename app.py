@@ -12,7 +12,6 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not found")
 
-# Временная заглушка Redis (замените на реальный позже)
 class FakeRedis:
     async def get(self, *args, **kwargs): return None
     async def setex(self, *args, **kwargs): return True
@@ -70,7 +69,10 @@ async def anti_spam_handler(message: types.Message):
         await message.answer("🚫 Спам запрещён!")
 
 async def main():
+    # Удаляем вебхук и сбрасываем все ожидающие обновления
     await bot.delete_webhook(drop_pending_updates=True)
+    # Небольшая пауза, чтобы Telegram успел обработать
+    await asyncio.sleep(1)
     print("Бот запущен и работает через long polling", flush=True)
     await dp.start_polling(bot)
 
